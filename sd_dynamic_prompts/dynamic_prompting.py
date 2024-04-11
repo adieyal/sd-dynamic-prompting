@@ -103,7 +103,6 @@ class Script(scripts.Script):
 
         callbacks.register_prompt_writer(self._prompt_writer)
         callbacks.register_on_infotext_pasted()
-        callbacks.register_settings()
         callbacks.register_wildcards_tab(self._wildcard_manager)
 
     def title(self):
@@ -545,3 +544,6 @@ class Script(scripts.Script):
                 original_negative_hr_prompt,
                 original_negative_prompt,
             )
+
+
+callbacks.register_settings()  # Settings need to be registered early, see #754.
