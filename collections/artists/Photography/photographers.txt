@@ -63,7 +63,7 @@ __artists/Photography/by_country/panama__
 __artists/Photography/by_country/peru__
 __artists/Photography/by_country/poland__
 __artists/Photography/by_country/portugal__
-__artists/Photography/by_country/romania
+__artists/Photography/by_country/romania__
 __artists/Photography/by_country/russia__
 __artists/Photography/by_country/sierra_leone__
 __artists/Photography/by_country/singapore__
