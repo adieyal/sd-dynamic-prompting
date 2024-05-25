@@ -329,11 +329,13 @@ The last two entries are ignore since they don't store arrays.
 A handy feature of YAML files is that they provide an easy way to add weights to wildcards, something which isn't possible using standard text files. Here is an example:
 
 ```yaml
-{
-  2::red
-  | 3::blue
-  | 1:: green
-}
+# colors.yaml
+colors:
+- "{
+    2::red
+    |3::blue
+    |1::green
+  }"
 ```
 
 #### JSON files
