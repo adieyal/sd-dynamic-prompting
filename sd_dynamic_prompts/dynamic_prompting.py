@@ -12,7 +12,7 @@ import torch
 from dynamicprompts.generators.promptgenerator import GeneratorException
 from dynamicprompts.parser.parse import ParserConfig
 from dynamicprompts.wildcards import WildcardManager
-from modules.processing import fix_seed
+from modules.processing import fix_seed, create_infotext
 from modules.shared import opts
 
 from sd_dynamic_prompts import __version__, callbacks
@@ -517,10 +517,22 @@ class Script(scripts.Script):
 
         if opts.dp_write_raw_template:
             params = p.extra_generation_params
-            if original_prompt:
-                params["Template"] = original_prompt
-            if original_negative_prompt:
-                params["Negative Template"] = original_negative_prompt
+
+            first_time_only = params.get("Dynamic Prompts") is None
+
+            params["Dynamic Prompts"] = {
+                "use_fixed_seed": use_fixed_seed,
+                "unlink_seed_from_prompt": unlink_seed_from_prompt,
+                "enable_jinja_templates": enable_jinja_templates,
+            }
+
+            if first_time_only:
+                def _lazy_params(k1: str, v1, v2):
+                    if k1 not in params and v1 != v2:
+                        params[k1] = v1
+
+                _lazy_params("Template", original_prompt, all_prompts[0])
+                _lazy_params("Negative Template", original_negative_prompt, all_negative_prompts[0])
 
         p.all_prompts = all_prompts
         p.all_negative_prompts = all_negative_prompts
@@ -544,6 +556,55 @@ class Script(scripts.Script):
                 original_negative_hr_prompt,
                 original_negative_prompt,
             )
+
+    def process_batch(selfself, p, *args, **kwargs):
+        batch_number = kwargs.get('batch_number')
+        prompts = kwargs.get('prompts')
+
+        def _lazy_params(params, k1: str, v1, k2: str):
+            v2 = params.get(k2)
+            if v2 is not None and v1 != v2:
+                params[k1] = v1
+
+        _lazy_params(p.extra_generation_params, "Template Generated", prompts[0], "Template")
+        _lazy_params(p.extra_generation_params, "Negative Template Generated", p.all_negative_prompts[batch_number], "Negative Template")
+
+        p.extra_generation_params["Template Seeds"] = kwargs.get('seeds')
+        p.extra_generation_params["Template Seeds Sub"] = kwargs.get('subseeds')
+
+    def postprocess(
+            self,
+            p,
+            res,
+            *args,
+            **kwargs
+    ):
+        index_of_first_image = res.index_of_first_image
+        infotexts = res.infotexts
+
+        if index_of_first_image != 0:
+            images = res.images
+
+            grid = images[index_of_first_image-1]
+
+            def _lazy_params(params, k1: str, v1: list, k2: str):
+                v2 = params.get(k2)
+                if v2 is not None and v1[0] != v2:
+                    params[k1] = v1
+
+            res.extra_generation_params.pop("Template Generated", None)
+            res.extra_generation_params.pop("Negative Template Generated", None)
+
+            _lazy_params(res.extra_generation_params, "Template Generated Grid", res.all_prompts, "Template")
+            _lazy_params(res.extra_generation_params, "Negative Template Generated Grid", res.all_negative_prompts,
+                         "Negative Template")
+
+            text = create_infotext(p, res.all_prompts, res.all_seeds, res.all_subseeds, use_main_prompt=True,
+                            all_negative_prompts=res.all_negative_prompts)
+            grid.info["parameters"] = text
+
+            infotexts.pop(index_of_first_image-1)
+            infotexts.insert(index_of_first_image-1, text)
 
 
 callbacks.register_settings()  # Settings need to be registered early, see #754.
