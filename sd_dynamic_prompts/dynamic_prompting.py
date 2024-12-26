@@ -422,74 +422,81 @@ class Script(scripts.Script):
         if self._auto_purge_cache:
             self._wildcard_manager.clear_cache()
 
-        try:
-            logger.debug("Creating generator")
+        all_prompts = []
+        all_negative_prompts = []
+        
+        
+        if num_images is None:
+            num_images = 1 # if combinatorial and max_generations is 0, we still want to generate one prompt
+        
+        for i in range(num_images):
+            try:
+                logger.debug("Creating generator")
 
-            generator_builder = (
-                GeneratorBuilder(
-                    self._wildcard_manager,
-                    ignore_whitespace=ignore_whitespace,
-                    parser_config=parser_config,
+                generator_builder = (
+                    GeneratorBuilder(
+                        self._wildcard_manager,
+                        ignore_whitespace=ignore_whitespace,
+                        parser_config=parser_config,
+                    )
+                    .set_is_feeling_lucky(is_feeling_lucky)
+                    .set_is_attention_grabber(
+                        is_attention_grabber,
+                        min_attention,
+                        max_attention,
+                    )
+                    .set_is_jinja_template(
+                        enable_jinja_templates,
+                        limit_prompts=self._limit_jinja_prompts,
+                    )
+                    .set_is_combinatorial(is_combinatorial, combinatorial_batches)
+                    .set_is_magic_prompt(
+                        is_magic_prompt=is_magic_prompt,
+                        magic_model=magic_model,
+                        magic_prompt_length=magic_prompt_length,
+                        magic_temp_value=magic_temp_value,
+                        magic_blocklist_regex=magic_blocklist_regex,
+                        batch_size=magicprompt_batch_size,
+                        device=get_magic_prompt_device(),
+                    )
+                    .set_is_dummy(False)
+                    .set_unlink_seed_from_prompt(unlink_seed_from_prompt)
+                    .set_seed(original_seed + i if not use_fixed_seed else original_seed)
+                    .set_context(p)
+                    .set_freeze_prompt(should_freeze_prompt(p))
                 )
-                .set_is_feeling_lucky(is_feeling_lucky)
-                .set_is_attention_grabber(
-                    is_attention_grabber,
-                    min_attention,
-                    max_attention,
+
+                generator = generator_builder.create_generator()
+
+                if disable_negative_prompt:
+                    generator_builder.disable_prompt_magic()
+                    negative_generator = generator_builder.create_generator()
+                else:
+                    negative_generator = generator
+
+
+                current_seeds = None
+                if not unlink_seed_from_prompt:
+                    current_seeds = [original_seed + i if not use_fixed_seed else original_seed]
+
+                current_prompts, current_negative_prompts = generate_prompts(
+                    prompt_generator=generator,
+                    negative_prompt_generator=negative_generator,
+                    prompt=original_prompt,
+                    negative_prompt=original_negative_prompt,
+                    num_prompts=1, # evaluate immediate variables once per image
+                    seeds=current_seeds,
                 )
-                .set_is_jinja_template(
-                    enable_jinja_templates,
-                    limit_prompts=self._limit_jinja_prompts,
-                )
-                .set_is_combinatorial(is_combinatorial, combinatorial_batches)
-                .set_is_magic_prompt(
-                    is_magic_prompt=is_magic_prompt,
-                    magic_model=magic_model,
-                    magic_prompt_length=magic_prompt_length,
-                    magic_temp_value=magic_temp_value,
-                    magic_blocklist_regex=magic_blocklist_regex,
-                    batch_size=magicprompt_batch_size,
-                    device=get_magic_prompt_device(),
-                )
-                .set_is_dummy(False)
-                .set_unlink_seed_from_prompt(unlink_seed_from_prompt)
-                .set_seed(original_seed)
-                .set_context(p)
-                .set_freeze_prompt(should_freeze_prompt(p))
-            )
+                
+                all_prompts.extend(current_prompts)
+                all_negative_prompts.extend(current_negative_prompts)
 
-            generator = generator_builder.create_generator()
 
-            if disable_negative_prompt:
-                generator_builder.disable_prompt_magic()
-                negative_generator = generator_builder.create_generator()
-            else:
-                negative_generator = generator
+            except GeneratorException as e:
+                logger.exception(e)
+                all_prompts.append(str(e))
+                all_negative_prompts.append(str(e))
 
-            all_seeds = None
-            if num_images and not unlink_seed_from_prompt:
-                p.all_seeds, p.all_subseeds = get_seeds(
-                    p,
-                    num_images,
-                    use_fixed_seed,
-                    is_combinatorial,
-                    combinatorial_batches,
-                )
-                all_seeds = p.all_seeds
-
-            all_prompts, all_negative_prompts = generate_prompts(
-                prompt_generator=generator,
-                negative_prompt_generator=negative_generator,
-                prompt=original_prompt,
-                negative_prompt=original_negative_prompt,
-                num_prompts=num_images,
-                seeds=all_seeds,
-            )
-
-        except GeneratorException as e:
-            logger.exception(e)
-            all_prompts = [str(e)]
-            all_negative_prompts = [str(e)]
 
         updated_count = len(all_prompts)
         p.n_iter = math.ceil(updated_count / p.batch_size)
